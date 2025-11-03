@@ -61,6 +61,10 @@ JOINT_LANDMARK_MAP = { # indices of landmarks for each joint
 # -------------------------------------------------------------------
 T_POSE_VECTORS = {
     'left_shoulder': np.array([0.0, 1.0, 0.0]),    # Arm points left
+    # what do the numberes mean ?
+    # These numbers represent the direction vector of the limb in the URDF coordinate system.
+    # u mean x, y, z unit vectors ? yes
+    # so what does this mean for the arm direction ? X- 
     'right_shoulder': np.array([0.0, -1.0, 0.0]),  # Arm points right
     'left_hip': np.array([0.0, 0.0, -1.0]),        # Leg points down
     'right_hip': np.array([0.0, 0.0, -1.0]),       # Leg points down
@@ -80,8 +84,12 @@ def landmarks_to_dict(pose_world_landmarks):
 
     landmark_dict = {}
     for i, lm in enumerate(pose_world_landmarks):
+        #what does the pose_world_landmarks contain ?
+        # The pose_world_landmarks contain 3D coordinates of key points on the human body. like 33 a ? yes
         # MediaPipe: +X right, +Y down, +Z toward camera
         # URDF:      +X forward, +Y left, +Z up
+        # urdf to mediapipe transformation
+        
         transformed = np.array([
             -lm.z,   # forward
             -lm.x,   # left
@@ -155,7 +163,7 @@ def decompose_rotation_to_pitch_roll(rotation_matrix: np.ndarray) -> tuple[float
 
     pitch = np.arctan2(
         -rotation_matrix[2, 0], # why negative here ? 
-        # 
+        # ? This negative sign is used to account for the coordinate system conventions and to ensure that the pitch angle is calculated correctly.
         np.sqrt(rotation_matrix[2, 1] ** 2 + rotation_matrix[2, 2] ** 2)
     )
     roll = np.arctan2(rotation_matrix[2, 1], rotation_matrix[2, 2])

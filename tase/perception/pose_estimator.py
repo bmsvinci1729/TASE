@@ -4,6 +4,10 @@ import numpy as np
 import mediapipe as mp
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
+# above's purpose ? 
+
+# above's purpose ? 
+
 from tase.perception.kinematics import JOINT_LANDMARK_MAP, landmarks_to_dict, calculate_angle
 from tase.perception.kinematics import T_POSE_VECTORS, get_rotation_matrix, decompose_rotation_to_pitch_roll
 
@@ -23,7 +27,7 @@ def extract_3d_landmarks(image_path: str, model_path: str):
         or None if no pose is detected.
     """
     if not os.path.exists(image_path):
-        print(f"XXXXXXXXXXXXXXXX Error: Image file not found at {image_path}")
+        print(f"[ERROR] Image file not found at {image_path}")
         return None
 
     BaseOptions = python.BaseOptions
@@ -35,6 +39,10 @@ def extract_3d_landmarks(image_path: str, model_path: str):
     options = PoseLandmarkerOptions(
         base_options=BaseOptions(model_asset_path=model_path),
         running_mode=VisionRunningMode.IMAGE
+        # what does running mode image mean ?
+        # It means the model will process the image as a single frame.
+        # what are different ruuning modes ?
+        # Other modes include VIDEO (for processing video streams) and LIVE_STREAM (for real-time
     )
 
     with PoseLandmarker.create_from_options(options) as landmarker:
@@ -47,16 +55,67 @@ def extract_3d_landmarks(image_path: str, model_path: str):
         result = landmarker.detect(mp_image)
 
         if not result.pose_world_landmarks:
-            print(f"XXXXXXX Warning: No pose detected in {image_path}")
+            print(f"[WARNING] No pose detected in {image_path}")
             return None
 
         return result
 
 ### so till here 3d landmarks are extracted, /detected from img and stored in the result variable
 
+def visualize_landmarks(image_path, result):
+    """
+    Draws 2D pose landmarks on the image using MediaPipe's drawing utilities.
+    """
+    import mediapipe as mp
+    import cv2
+    from mediapipe.framework.formats import landmark_pb2
+
+    # Load the original image
+    image = cv2.imread(image_path)
+
+    # Drawing utils
+    mp_drawing = mp.solutions.drawing_utils
+    mp_drawing_styles = mp.solutions.drawing_styles
+
+    annotated_image = image.copy()
+
+    # Guard against wrong input types
+    if not hasattr(result, 'pose_landmarks'):
+        print("[WARNING] visualize_landmarks expected a MediaPipe result, got incompatible type.")
+        return
+
+    # Convert list of landmarks to a NormalizedLandmarkList for drawing
+    pose_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
+    pose_landmarks_proto.landmark.extend([
+        landmark_pb2.NormalizedLandmark(
+            x=lmk.x,
+            y=lmk.y,
+            z=lmk.z,
+            visibility=lmk.visibility
+        ) for lmk in result.pose_landmarks[0]
+    ])
+
+    # Draw the landmarks and connections
+    mp_drawing.draw_landmarks(
+        annotated_image,
+        pose_landmarks_proto,
+        mp.solutions.pose.POSE_CONNECTIONS,
+        landmark_drawing_spec=mp_drawing_styles.get_default_pose_landmarks_style()
+    )
+
+    # Show the annotated image
+    cv2.imshow("Pose Landmarks", annotated_image)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+
+    # Optionally save it
+    cv2.imwrite("images/annotated_pose.jpg", annotated_image)
+    print("[LOG] Annotated image saved as images/annotated_pose.jpg")
+
 # -------------------------------------------------------------------
 # Convert image → landmarks → JOINT ANGLES
 # -------------------------------------------------------------------
+
 def get_pose_angles_from_image(image_path: str, model_path: str):
     """
     End-to-end function to get a dictionary of joint angles from an image,
@@ -124,16 +183,23 @@ if __name__ == '__main__':
     TEST_IMAGE_PATH = os.path.join('images', 'test_pose.jpg')
 
     if not os.path.exists(MODEL_ASSET_PATH):
-        print("❌ Model file not found. Please place it in the 'assets' folder.")
+        print("[ERROR] Model file not found. Please place it in the 'assets' folder.")
     elif not os.path.exists(TEST_IMAGE_PATH):
-        print("❌ Test image not found. Please place one in the 'images' folder.")
+        print("[ERROR] Test image not found. Please place one in the 'images' folder.")
     else:
-        print(f"🧠 Processing image: {TEST_IMAGE_PATH}")
+        print(f"[LOG] Processing image: {TEST_IMAGE_PATH}")
         angles = get_pose_angles_from_image(TEST_IMAGE_PATH, MODEL_ASSET_PATH)
 
         if angles:
-            print("\n--- Calculated Joint Angles (radians / degrees) ---")
+            print("\n[LOG] --- Calculated Joint Angles (radians / degrees) ---")
             for joint, angle in angles.items():
-                print(f"{joint:<20}: {angle:.4f} rad ({np.degrees(angle):.2f}°)")
+                print(f"[LOG] {joint:<20}: {angle:.4f} rad ({np.degrees(angle):.2f}°)")
         else:
-            print("\n⚠️ Could not calculate joint angles. Pose detection may have failed.")
+            print("\n[WARNING] Could not calculate joint angles. Pose detection may have failed.")
+        # Visualize landmarks using MediaPipe detection result, not the angles dict
+        vis_result = extract_3d_landmarks(TEST_IMAGE_PATH, MODEL_ASSET_PATH)
+        if vis_result:
+            visualize_landmarks(TEST_IMAGE_PATH, vis_result)
+
+    # Visualize the landmarks on the image
+    

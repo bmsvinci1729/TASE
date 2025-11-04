@@ -31,7 +31,7 @@ class QNetwork(nn.Module):
         self.fc1 = nn.Linear(INPUT_DIM, HIDDEN_SIZE) # Input Layer - (32 input -> 512 neurons)
         self.fc2 = nn.Linear(HIDDEN_SIZE, HIDDEN_SIZE) # Hidden layer - (512 -> 512)
         # Output: 70 (Total discrete actions: 14 joints * 5 bins)
-        self.fc3 = nn.Linear(HIDDEN_SIZE, OUTPUT_DIM) #final output
+        self.fc3 = nn.Linear(HIDDEN_SIZE, OUTPUT_DIM) #final output - 70 actions
 
     def forward(self, state: torch.Tensor) -> torch.Tensor:
         """
@@ -44,7 +44,7 @@ class QNetwork(nn.Module):
 
         # The final output layer is linear, representing the Q-values.
         q_values = self.fc3(x)
-        return q_values
+        return q_values # Output shape: [batch_size, 70]
 
 def select_action(q_values_tensor: torch.Tensor) -> np.ndarray:
     """

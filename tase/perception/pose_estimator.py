@@ -6,8 +6,6 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 # above's purpose ? 
 
-# above's purpose ? 
-
 from tase.perception.kinematics import JOINT_LANDMARK_MAP, landmarks_to_dict, calculate_angle
 from tase.perception.kinematics import T_POSE_VECTORS, get_rotation_matrix, decompose_rotation_to_pitch_roll
 
@@ -200,6 +198,4 @@ if __name__ == '__main__':
         vis_result = extract_3d_landmarks(TEST_IMAGE_PATH, MODEL_ASSET_PATH)
         if vis_result:
             visualize_landmarks(TEST_IMAGE_PATH, vis_result)
-
-    # Visualize the landmarks on the image
     

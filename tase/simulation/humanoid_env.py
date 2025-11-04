@@ -53,7 +53,18 @@ class HumanoidWalkEnv(gym.Env):
             'right_knee': self.joint_name_to_id.get('right_knee'),
             'left_elbow': self.joint_name_to_id.get('left_elbow'),
             'right_elbow': self.joint_name_to_id.get('right_elbow'),
+            # Map shoulder/hip multi-axis joints from perception to URDF joint names
+            'left_shoulder_roll': self.joint_name_to_id.get('left_shoulder_x'),
+            'left_shoulder_pitch': self.joint_name_to_id.get('left_shoulder_y'),
+            'right_shoulder_roll': self.joint_name_to_id.get('right_shoulder_x'),
+            'right_shoulder_pitch': self.joint_name_to_id.get('right_shoulder_y'),
+            'left_hip_roll': self.joint_name_to_id.get('left_hip_x'),
+            'left_hip_pitch': self.joint_name_to_id.get('left_hip_y'),
+            'right_hip_roll': self.joint_name_to_id.get('right_hip_x'),
+            'right_hip_pitch': self.joint_name_to_id.get('right_hip_y'),
         }
+        # Filter out None values (in case some joints don't exist)
+        self.angle_name_to_joint_index = {k: v for k, v in self.angle_name_to_joint_index.items() if v is not None}
 
         # --- Define Observation and Action Spaces ---
         obs_space_dim = 4 + 2 * len(self.controllable_joint_indices) # 4 for base orientation (quaternion) + 2 per joint (position + velocity)
@@ -153,6 +164,25 @@ class HumanoidWalkEnv(gym.Env):
 
         # Re-fetch joint info after reload
         self._get_joint_info()
+        
+        # Rebuild angle mapping after joint info is updated
+        self.angle_name_to_joint_index = {
+            'left_knee': self.joint_name_to_id.get('left_knee'), 
+            'right_knee': self.joint_name_to_id.get('right_knee'),
+            'left_elbow': self.joint_name_to_id.get('left_elbow'),
+            'right_elbow': self.joint_name_to_id.get('right_elbow'),
+            # Map shoulder/hip multi-axis joints from perception to URDF joint names
+            'left_shoulder_roll': self.joint_name_to_id.get('left_shoulder_x'),
+            'left_shoulder_pitch': self.joint_name_to_id.get('left_shoulder_y'),
+            'right_shoulder_roll': self.joint_name_to_id.get('right_shoulder_x'),
+            'right_shoulder_pitch': self.joint_name_to_id.get('right_shoulder_y'),
+            'left_hip_roll': self.joint_name_to_id.get('left_hip_x'),
+            'left_hip_pitch': self.joint_name_to_id.get('left_hip_y'),
+            'right_hip_roll': self.joint_name_to_id.get('right_hip_x'),
+            'right_hip_pitch': self.joint_name_to_id.get('right_hip_y'),
+        }
+        # Filter out None values
+        self.angle_name_to_joint_index = {k: v for k, v in self.angle_name_to_joint_index.items() if v is not None}
 
         # Apply initial pose if provided
         if options and 'initial_pose_angles' in options:
@@ -196,11 +226,16 @@ class HumanoidWalkEnv(gym.Env):
         return observation.astype(np.float32) # base orientation, joint positions, joint velocities together form the observation
 
     # --------------------------------------------------------------------------
+
     def step(self, action):
         """
         Applies an action, steps the simulation, and returns the results.
+        This implements the full Task 3.3 Reward Function.
         """
+        # 1. Apply Action
+        # Clip action to be in [-1, 1] range
         action = np.clip(np.array(action, dtype=np.float32), -1.0, 1.0)
+        # Scale normalized action to the joint's max torque
         scaled_torques = action * np.array(self.max_torques, dtype=np.float32)
 
         p.setJointMotorControlArray(
@@ -212,17 +247,60 @@ class HumanoidWalkEnv(gym.Env):
 
         p.stepSimulation()
 
+        # 2. Get New Observation
         observation = self._get_observation()
+        
+        # 3. Calculate Reward (Task 3.3) 
+        torso_pos, torso_quat = p.getBasePositionAndOrientation(self.humanoid_id)
+        torso_z = torso_pos[2]
 
-        # Simple reward: alive bonus
-        reward = 0.1
-        torso_pos, _ = p.getBasePositionAndOrientation(self.humanoid_id)
-        terminated = torso_pos[2] < 0.8  # fell if too low
-        if terminated:
-            reward = -100.0
+        # --- Reward Components ---
+        
+        # r_vel: Forward Velocity Reward 
+        # Get world-frame linear velocity 
+        torso_vel_world, _ = p.getBaseVelocity(self.humanoid_id)
+        # Get rotation matrix from quaternion to find local forward vector 
+        rot_matrix = p.getMatrixFromQuaternion(torso_quat)
+        local_forward_vec = [rot_matrix[0], rot_matrix[3], rot_matrix[6]] # Local X-axis
+        
+        # We only care about forward velocity in the X-Y plane
+        world_vel_vec_2d = [torso_vel_world[0], torso_vel_world[1]]
+        local_forward_vec_2d = [local_forward_vec[0], local_forward_vec[1]]
+        
+        # Dot product of 2D velocity and 2D forward vector
+        r_vel = np.dot(world_vel_vec_2d, local_forward_vec_2d)
+        
+        # r_live: Alive Bonus 
+        r_live = 0.1
 
-        truncated = False
+        # T_energy: Energy/Torque Penalty 
+        # In TORQUE_CONTROL, applied torque is the 'forces' param
+        t_energy = np.sum(np.square(scaled_torques))
+
+        # Stability Penalty (to discourage wobbling)
+        roll, pitch, _ = p.getEulerFromQuaternion(torso_quat)
+        r_stability_penalty = (roll**2 + pitch**2)
+
+        # --- Define Weights (These are hyperparameters you can tune) ---
+        W_VEL = 1.0       # Primary objective
+        W_LIVE = 0.1      # Small incentive to stay up
+        W_ENERGY = 0.005  # Small penalty for high torque
+        W_STABILITY = 0.05 # Small penalty for wobbling
+        
+        reward = (W_VEL * r_vel) + \
+                 (W_LIVE * r_live) - \
+                 (W_ENERGY * t_energy) - \
+                 (W_STABILITY * r_stability_penalty)
+
+        # 4. Check Termination
+        terminated = False
+        if torso_z < 0.8: # Fell over
+            terminated = True
+            reward = -10.0 # Large fall penalty 
+
+        truncated = False # We can use this later for a time limit
         info = {}
+        
         return observation, reward, terminated, truncated, info
 
     # --------------------------------------------------------------------------
@@ -235,59 +313,3 @@ class HumanoidWalkEnv(gym.Env):
         except Exception:
             pass
 
-
-# ------------------------------------------------------------------------------
-# TEST BLOCK
-# ------------------------------------------------------------------------------
-# (In tase/simulation/humanoid_env.py)
-
-# (In tase/simulation/humanoid_env.py)
-
-    def __init__(self, urdf_path, render_mode='human'):
-        self.render_mode = render_mode
-        
-        if self.render_mode == 'human':
-            self.physics_client = p.connect(p.GUI)
-        else:
-            self.physics_client = p.connect(p.DIRECT)
-
-        p.setAdditionalSearchPath(pybullet_data.getDataPath())
-        p.setGravity(0, 0, -9.81)
-        self.plane_id = p.loadURDF("plane.urdf")
-        
-        self.urdf_path = urdf_path
-        start_pos = [0, 0, 1.5]
-        self.humanoid_id = p.loadURDF(self.urdf_path, start_pos)
-
-        self._get_joint_info()
-        
-        # --- FINAL, CORRECTED JOINT MAPPING for humanoid_v2.urdf ---
-        self.angle_name_to_joint_index = {
-            'left_knee': self.joint_name_to_id.get('left_knee'),
-            'right_knee': self.joint_name_to_id.get('right_knee'),
-            'left_elbow': self.joint_name_to_id.get('left_elbow'),
-            'right_elbow': self.joint_name_to_id.get('right_elbow'),
-            
-            # Roll is rotation around the local X-axis in this URDF
-            'left_shoulder_roll': self.joint_name_to_id.get('left_shoulder_x'),
-            'right_shoulder_roll': self.joint_name_to_id.get('right_shoulder_x'),
-            'left_hip_roll': self.joint_name_to_id.get('left_hip_x'),
-            'right_hip_roll': self.joint_name_to_id.get('right_hip_x'),
-
-            # Pitch is rotation around the local Y-axis in this URDF
-            'left_shoulder_pitch': self.joint_name_to_id.get('left_shoulder_y'),
-            'right_shoulder_pitch': self.joint_name_to_id.get('right_shoulder_y'),
-            'left_hip_pitch': self.joint_name_to_id.get('left_hip_y'),
-            'right_hip_pitch': self.joint_name_to_id.get('right_hip_y'),
-        }
-        self.angle_name_to_joint_index = {k: v for k, v in self.angle_name_to_joint_index.items() if v is not None}
-
-        obs_space_dim = 4 + 2 * len(self.controllable_joint_indices)
-        self.observation_space = gym.spaces.Box(
-            low=-np.inf, high=np.inf, shape=(obs_space_dim,), dtype=np.float32
-        )
-        action_space_dim = len(self.controllable_joint_indices)
-        self.action_space = gym.spaces.Box(
-            low=-1.0, high=1.0, shape=(action_space_dim,), dtype=np.float32
-        )
-        self.max_torques = [self.joint_max_force[i] for i in self.controllable_joint_indices]

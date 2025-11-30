@@ -6,7 +6,7 @@ This work showcases how a MuJoCo Humanoid robot can be trained to walk using RL 
 
 ### Results
 Demo GIF:
-![Demo](tase/demo_4.gif)
+![Demo](tase/demo_4_.gif)
 
 Input image:
 ![4](https://github.com/user-attachments/assets/9ee96f67-7bb7-4f2d-8a96-ac64b37585ea)

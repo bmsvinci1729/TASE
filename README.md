@@ -5,6 +5,9 @@
 This work showcases how a MuJoCo Humanoid robot can be trained to walk using RL algorithms well-suited for continuous control tasks. The project also provides a pre-trained model and a workflow that initializes the humanoid’s posture using body-keypoints extracted from an input image supplied by the user.
 
 ### Results
+Demo GIF:
+![Demo](tase/demo_4.gif)
+
 Input image:
 ![4](https://github.com/user-attachments/assets/9ee96f67-7bb7-4f2d-8a96-ac64b37585ea)
 Pose estimation: Mediapipe
